@@ -1,7 +1,7 @@
 services:
   # MySQL 数据库
   mysql:
-    image: mysql:8.0
+    image: docker.1ms.run/library/mysql:8.0
     container_name: air-quality-mysql
     restart: always
     environment:
