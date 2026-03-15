@@ -11,10 +11,9 @@ set -e
 #===========================================
 
 # ========== 配置区 ==========
-REPO_URL="https://github.com/你的用户名/big-screen.git"   # ← 改成你的仓库地址
-BRANCH="master"
+REPO_URL="https://github.com/iLeoWang/big-screen.git"
+BRANCH="main"
 APP_DIR="/opt/big-screen"
-DB_PASSWORD="AirQuality2024!"
 # ============================
 
 echo ""
@@ -64,11 +63,16 @@ else
     cd "$APP_DIR"
 fi
 
-# 5. 写入环境变量
-echo "[5/7] 配置环境变量..."
-cat > "$APP_DIR/.env" <<EOF
-DB_PASSWORD=${DB_PASSWORD}
+# 5. 配置环境变量（如果 .env 不存在则创建默认配置）
+if [ ! -f "$APP_DIR/.env" ]; then
+    echo "[5/7] 创建默认环境变量..."
+    cat > "$APP_DIR/.env" <<EOF
+DB_PASSWORD=AirQuality2024!
 EOF
+    echo "  提示: 请修改 $APP_DIR/.env 中的数据库密码"
+else
+    echo "[5/7] 环境变量已存在 ✓"
+fi
 
 # 6. 构建并启动（首次约 3-5 分钟）
 echo "[6/7] 构建并启动容器..."

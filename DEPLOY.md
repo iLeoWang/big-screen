@@ -1,236 +1,190 @@
-# 空气质量大屏 - 阿里云部署文档
+# 空气质量大屏 — 部署文档
 
-## 项目架构
+## 架构
 
 ```
-┌──────────┐     ┌──────────────┐     ┌─────────┐
-│  Nginx   │────▶│ Express API  │────▶│  MySQL  │
-│ (前端+代理)│     │  (port:8080) │     │ (3306)  │
-│ (port:80)│     └──────────────┘     └─────────┘
-└──────────┘
+用户浏览器  →  公网IP:80  →  Nginx (前端静态 + 反向代理)
+                                ↓ /api/
+                           Express Server :8080 (Docker 内网)
+                                ↓
+                           MySQL 8.0 :3306 (Docker 内网)
 ```
 
-- **前端**：React + Vite 构建后由 Nginx 托管，路径 `/big-screen/`
-- **后端**：Express 服务，端口 8080
-- **数据库**：MySQL 8.0
-- **Nginx** 同时负责反向代理 `/api/` 到后端
+- **前端**：React + Vite → Nginx 托管，路径 `/big-screen/`
+- **后端**：Express，2 个接口 `/dashboard/map` + `/dashboard/overview`
+- **数据库**：MySQL 8.0，Docker Volume 持久化
+- 只有 **80 端口** 暴露到公网，数据库和后端仅 Docker 内网通信
 
 ---
 
-## 一、服务器准备
+## 一键部署
 
-### 1.1 登录阿里云服务器
+### 前提
+
+- 阿里云 ECS（或任意 Linux 服务器）
+- 阿里云安全组已放行 **80 端口**（入方向 TCP 0.0.0.0/0）
+
+### 执行
 
 ```bash
-ssh root@<你的服务器IP>
+ssh root@你的服务器IP
+
+# 下载并执行部署脚本
+curl -sL https://raw.githubusercontent.com/iLeoWang/big-screen/main/deploy.sh | bash
 ```
 
-### 1.2 安装 Docker 和 Docker Compose
+脚本自动完成：
+1. 安装 Docker + Git（如果没有）
+2. 克隆代码到 `/opt/big-screen`
+3. 创建 `.env` 配置数据库密码（默认 `AirQuality2024!`）
+4. 构建并启动 3 个容器（MySQL + Server + Nginx）
+5. 等待服务就绪后初始化数据
+6. 输出访问地址
 
-```bash
-# 安装 Docker
-curl -fsSL https://get.docker.com | sh
-systemctl start docker
-systemctl enable docker
+首次构建约 **3-5 分钟**（下载镜像 + npm install + pnpm build）。
 
-# 验证
-docker --version
-docker compose version
-```
-
-> Docker Compose V2 已内置在 Docker 中，无需单独安装。
-
-### 1.3 开放端口
-
-在阿里云控制台 → 安全组，放行以下端口：
-
-| 端口 | 用途 |
-|------|------|
-| 80   | 前端访问 |
-| 8080 | 后端 API（可选，仅调试用） |
-| 3306 | MySQL（可选，仅调试用） |
-
-> 生产环境建议只开放 80 端口，其他端口通过内网访问。
+部署完成后访问：`http://你的服务器IP/big-screen/`
 
 ---
 
-## 二、部署步骤
+## 数据库密码
 
-### 2.1 上传代码到服务器
+密码通过项目根目录的 `.env` 文件管理，`docker-compose.yml` 自动读取。
 
-```bash
-# 方式一：git clone
-cd /opt
-git clone <你的仓库地址> air-quality
-cd air-quality
+### 首次部署
 
-# 方式二：scp 上传
-scp -r ./ root@<服务器IP>:/opt/air-quality
-ssh root@<服务器IP>
-cd /opt/air-quality
+部署脚本自动创建 `/opt/big-screen/.env`：
+
+```env
+DB_PASSWORD=AirQuality2024!
 ```
 
-### 2.2 一键启动
+### 修改密码
 
 ```bash
+cd /opt/big-screen
+
+# 1. 修改密码
+vi .env
+# 改 DB_PASSWORD=你的新密码
+
+# 2. 必须删除旧数据库卷重建（密码在 MySQL 首次初始化时写入，改 env 不会生效）
+docker compose down -v
 docker compose up -d --build
 ```
 
-首次启动会：
-1. 拉取 `mysql:8.0`、`node:18-alpine`、`nginx:alpine` 镜像
-2. 构建前端（多阶段构建：pnpm build → Nginx 静态托管）
-3. 构建后端（Node.js 应用）
-4. 自动执行 `server/sql/init.sql` 初始化数据库（建表 + 省份/区划数据）
+> **注意**：`docker compose down -v` 会清空数据库，需要重新初始化数据。
 
-### 2.3 填充模拟数据
+---
 
-MySQL 初始化只创建了表结构和省份基础数据，需要手动运行 seed 脚本填充业务数据：
+## 更新部署
+
+代码更新后，服务器上执行：
 
 ```bash
-docker compose exec server node src/seed.js
+cd /opt/big-screen
+git pull origin main
+docker compose up -d --build
 ```
 
-### 2.4 验证
+或者重新执行部署脚本（会自动 git pull）：
 
 ```bash
-# 检查容器状态
+cd /opt/big-screen && bash deploy.sh
+```
+
+---
+
+## 常用运维命令
+
+```bash
+cd /opt/big-screen
+
+# 查看容器状态
 docker compose ps
 
-# 检查后端健康
-curl http://localhost:8080/health
-
-# 检查前端
-curl -I http://localhost/big-screen/
-```
-
-浏览器访问：`http://<你的服务器IP>/big-screen/`
-
----
-
-## 三、常用运维命令
-
-```bash
 # 查看日志
-docker compose logs -f server    # 后端日志
-docker compose logs -f frontend  # Nginx 日志
-docker compose logs -f mysql     # MySQL 日志
+docker compose logs -f              # 全部
+docker compose logs -f server       # 后端
+docker compose logs -f frontend     # Nginx
+docker compose logs -f mysql        # 数据库
 
-# 重启服务
+# 重启单个服务
 docker compose restart server
 
-# 停止所有服务
+# 停止所有服务（保留数据）
 docker compose down
 
-# 停止并删除数据卷（清空数据库）
+# 停止并清空数据库（慎用）
 docker compose down -v
 
-# 重新构建并启动
-docker compose up -d --build
+# 手动初始化数据
+docker compose exec server node scripts/reseed-reasonable-data.mjs
+docker compose exec server node scripts/import-national-2025.mjs
+
+# 备份数据库
+docker compose exec mysql mysqldump -u root -pAirQuality2024! air_quality > backup.sql
+
+# 恢复数据库
+docker compose exec -T mysql mysql -u root -pAirQuality2024! air_quality < backup.sql
+
+# 健康检查
+curl http://localhost/api/health
 ```
 
 ---
 
-## 四、配置说明
+## 配置说明
 
-### 4.1 环境变量
-
-在 `docker-compose.yml` 中可修改：
+### 环境变量（`.env`）
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MYSQL_ROOT_PASSWORD` | 123456 | MySQL root 密码 |
-| `DB_HOST` | mysql | 数据库主机（容器内服务名） |
-| `DB_PORT` | 3306 | 数据库端口 |
-| `PORT` | 8080 | 后端端口 |
+| `DB_PASSWORD` | `AirQuality2024!` | MySQL root 密码 |
 
-### 4.2 Nginx 配置
+### docker-compose.yml
 
-前端 Nginx 配置在 `frontend/nginx.conf`：
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| `mysql` | 不暴露 | Docker 内网 3306 |
+| `server` | 不暴露 | Docker 内网 8080 |
+| `frontend` | **80:80** | 唯一对外端口 |
 
-- `/big-screen/` → 前端静态文件
-- `/api/` → 反向代理到 `server:8080`
+### Nginx 路由（`frontend/nginx.conf`）
 
-### 4.3 数据库持久化
+| 路径 | 目标 |
+|------|------|
+| `/` | 301 重定向到 `/big-screen/` |
+| `/big-screen/` | 前端静态文件（SPA） |
+| `/api/` | 反向代理到 `server:8080/` |
 
-MySQL 数据存储在 Docker Volume `mysql_data` 中，`docker compose down` 不会删除数据。
+### API 接口
 
-只有 `docker compose down -v` 才会清除数据。
-
----
-
-## 五、生产环境优化建议
-
-### 5.1 配置 HTTPS
-
-```bash
-# 安装 certbot 获取 Let's Encrypt 证书
-apt install certbot -y
-certbot certonly --standalone -d yourdomain.com
-```
-
-修改 `frontend/nginx.conf` 添加 SSL：
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name yourdomain.com;
-
-    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
-
-    # ... 其余配置不变
-}
-
-server {
-    listen 80;
-    return 301 https://$host$request_uri;
-}
-```
-
-### 5.2 修改数据库密码
-
-修改 `docker-compose.yml` 中的 `MYSQL_ROOT_PASSWORD` 和 `DB_PASSWORD`，保持一致。
-
-### 5.3 限制端口暴露
-
-生产环境 `docker-compose.yml` 中：
-- 移除 MySQL 的 `ports: - "3306:3306"`
-- 移除 server 的 `ports: - "8080:8080"`
-- 只保留 frontend 的 `ports: - "80:80"`
-
-容器间通过 Docker 网络内部通信，无需暴露到宿主机。
+| 接口 | 说明 |
+|------|------|
+| `GET /api/dashboard/map` | 地图数据（34 省份 AQI + 坐标） |
+| `GET /api/dashboard/overview?scope=ALL\|省份code` | 聚合面板数据 |
+| `GET /api/health` | 健康检查 |
 
 ---
 
-## 六、目录结构总览
+## 目录结构
 
 ```
-air-quality/
-├── docker-compose.yml          # Docker Compose 编排
+big-screen/
+├── deploy.sh                    # 一键部署脚本
+├── docker-compose.yml           # Docker 编排
+├── .env                         # 数据库密码（部署时生成，不入 git）
 ├── frontend/
-│   ├── Dockerfile              # 前端构建镜像（多阶段）
-│   ├── nginx.conf              # Nginx 配置
-│   ├── .dockerignore
-│   ├── package.json
-│   ├── src/                    # React 源码
-│   └── dist/                   # 构建产物（Docker 内生成）
+│   ├── Dockerfile               # 多阶段构建（pnpm build → Nginx）
+│   ├── nginx.conf               # Nginx 配置
+│   └── src/                     # React 源码
 ├── server/
-│   ├── Dockerfile              # 后端镜像
-│   ├── .dockerignore
-│   ├── package.json
+│   ├── Dockerfile               # Node.js 镜像
 │   ├── src/
-│   │   ├── app.js              # Express 入口
-│   │   ├── db.js               # MySQL 连接池
-│   │   ├── seed.js             # 数据填充脚本
-│   │   ├── routes/             # API 路由
-│   │   │   ├── left.js
-│   │   │   ├── right.js
-│   │   │   ├── bottom.js
-│   │   │   ├── middle.js
-│   │   │   ├── weather.js
-│   │   │   └── province.js
-│   │   └── utils/
-│   │       └── response.js
-│   └── sql/
-│       └── init.sql            # 数据库初始化脚本
+│   │   ├── app.js               # Express 入口
+│   │   ├── routes/dashboard.js  # /dashboard/map + /dashboard/overview
+│   │   └── services/            # 数据聚合、查询、演示数据
+│   ├── scripts/                 # 数据种子脚本
+│   └── sql/init.sql             # 数据库初始化
 ```
