@@ -1,0 +1,57 @@
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: air-quality-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-123456}
+      MYSQL_DATABASE: air_quality
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    # 生产环境不暴露数据库端口，仅 Docker 内网通信
+    # ports:
+    #   - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./server/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Express 后端
+  server:
+    build: ./server
+    container_name: air-quality-server
+    restart: always
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      DB_DATABASE: air_quality
+      PORT: 8080
+      HOST: 0.0.0.0
+      DEMO_SYNC_ENABLED: "true"
+    # 生产环境不暴露后端端口，由 Nginx 反向代理
+    # ports:
+    #   - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # Nginx + 前端
+  frontend:
+    build: ./frontend
+    container_name: air-quality-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+
+volumes:
+  mysql_data:

@@ -1,0 +1,21 @@
+{
+  "name": "air-quality-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js",
+    "test:api": "node scripts/api-regression.mjs",
+    "rebuild:aggregates": "node scripts/rebuild-aggregates.mjs",
+    "verify:aggregates": "node scripts/verify-aggregates.mjs",
+    "reseed:reasonable": "node scripts/reseed-reasonable-data.mjs",
+    "seed:national-2025": "node scripts/import-national-2025.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "mysql2": "^3.15.3"
+  }
+}
