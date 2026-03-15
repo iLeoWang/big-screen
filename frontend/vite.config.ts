@@ -74,25 +74,6 @@ export default defineConfig(({ mode }) => {
             },
             rollupOptions: {
                 output: {
-                    manualChunks: (id) => {
-                        if (
-                            id.includes("node_modules/echarts/") ||
-                            id.includes("node_modules/zrender/")
-                        ) {
-                            return "echarts";
-                        }
-                        if (
-                            id.includes("node_modules/react/") ||
-                            id.includes("node_modules/react-dom/")
-                        ) {
-                            return "react";
-                        }
-                        if (id.includes("node_modules/antd/")) {
-                            return "antd";
-                        }
-                        return undefined;
-                    },
-                    // 确保资源路径正确
                     chunkFileNames: "assets/js/[name]-[hash].js",
                     entryFileNames: "assets/js/[name]-[hash].js",
                     assetFileNames: "assets/[ext]/[name]-[hash].[ext]",
